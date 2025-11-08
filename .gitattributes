@@ -1,0 +1,20 @@
+# Normalize line endings to avoid LF/CRLF warnings
+
+# Default: let Git manage text normalization
+* text=auto
+
+# Code and config files use LF consistently
+*.py   text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.toml text eol=lf
+
+# Windows-only scripts keep CRLF
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+
+# Binary files (no line ending conversion)
+*.docx binary
+*.png  binary
+*.jpg  binary
+*.pdf  binary

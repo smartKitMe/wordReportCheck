@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wordreportcheck"
+version = "0.1.0"
+description = "一个可安装并通过命令行运行的Python 3 项目骨架"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+  { name = "Your Name" }
+]
+keywords = ["cli", "word", "report", "check"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Operating System :: OS Independent"
+]
+
+dependencies = [
+  "python-docx>=1.0.0",
+  "openai>=1.0.0"
+]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+wordreportcheck = "wordreportcheck.cli:main"

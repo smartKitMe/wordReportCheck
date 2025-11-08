@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+build/
+dist/
+*.egg-info/
+
+# Environments
+.venv/
+venv/
+ENV/
+
+# Editors/OS
+.idea/
+.vscode/
+.DS_Store
+
+# Project outputs
+outputs/*
+!outputs/README.md
+
+samples/*
+!samples/README.md
