@@ -53,16 +53,36 @@ py -m wordreportcheck parse --doc samples/示例报告.docx --out outputs/示例
 }
 ```
 
-2) 提交到 DeepSeek 进行评分
+2) 提交到评分服务进行评分（支持 DeepSeek 与 Kimi/Moonshot）
 
 ```bash
-# 一次性提交所有题目评分（默认）
-wordreportcheck score --doc samples/示例报告.docx --model deepseek-chat --api-key sk-xxx
+# DeepSeek：一次性提交所有题目评分（默认）
+wordreportcheck score --provider deepseek --doc samples/示例报告.docx --model deepseek-chat --api-key <DEEPSEEK_API_KEY>
 # 或使用已解析的 JSON：
-wordreportcheck score --json outputs/示例报告.json --model deepseek-chat --api-key sk-xxx
+wordreportcheck score --provider deepseek --json outputs/示例报告.json --model deepseek-chat --api-key <DEEPSEEK_API_KEY>
 
-# 逐题提交评分（每题单独请求），适合需要逐题日志或重试的场景
-wordreportcheck score --json outputs/示例报告.json --per-item --model deepseek-chat --api-key sk-xxx
+# DeepSeek：逐题提交评分（每题单独请求）
+wordreportcheck score --provider deepseek --json outputs/示例报告.json --per-item --model deepseek-chat --api-key <DEEPSEEK_API_KEY>
+
+# Kimi/Moonshot：一次性提交所有题目评分
+wordreportcheck score --provider kimi --doc samples/示例报告.docx --model moonshot-v1-8k --api-key <MOONSHOT_API_KEY>
+# 或使用已解析的 JSON：
+wordreportcheck score --provider kimi --json outputs/示例报告.json --model moonshot-v1-8k --api-key <MOONSHOT_API_KEY>
+
+# Kimi/Moonshot：逐题提交评分
+wordreportcheck score --provider kimi --json outputs/示例报告.json --per-item --model moonshot-v1-8k --api-key <MOONSHOT_API_KEY>
+
+# 写回成绩到JSON顶层“成绩”字段（取平均分）
+wordreportcheck score --provider deepseek --json outputs/示例报告.json --write-back --api-key <DEEPSEEK_API_KEY>
+wordreportcheck score --provider kimi     --json outputs/示例报告.json --write-back --api-key <MOONSHOT_API_KEY>
+
+# 写回成绩到 DOCX（将平均分写入“成绩/日期”单元格）
+# 方式一：评分时直接写回 DOCX（当使用 --doc 输入时）
+wordreportcheck score --provider deepseek --doc samples/示例报告.docx --write-docx --api-key <DEEPSEEK_API_KEY>
+wordreportcheck score --provider kimi     --doc samples/示例报告.docx --write-docx --api-key <MOONSHOT_API_KEY>
+
+# 方式二：从已有 JSON 写回 DOCX（JSON 顶层需已有“成绩”）
+wordreportcheck write-docx --doc samples/示例报告.docx --json outputs/示例报告.json
 ```
 
 评分输出为一个 JSON 数组，每个元素对应一个题目：
@@ -76,8 +96,60 @@ wordreportcheck score --json outputs/示例报告.json --per-item --model deepse
     "score": 0.85,
     "feedback": "答案覆盖关键点，但示例不足。"
   }
-]
+ ]
 ```
+
+## 环境配置（.env）
+
+- 在项目根目录或当前工作目录创建 `.env` 文件，即可为 CLI 提供默认参数与密钥。
+- 已内置 `.env` 示例（仓库根目录），你可以直接填写其中的值：
+
+```
+# 评分服务提供者（deepseek 或 kimi）
+WORDREPORTCHECK_PROVIDER=deepseek
+
+# 默认模型（deepseek 默认 deepseek-chat；kimi 默认 moonshot-v1-8k）
+WORDREPORTCHECK_MODEL=deepseek-chat
+
+# 通用 API Key（与下面的专用 Key 二选一）
+WORDREPORTCHECK_API_KEY=
+
+# DeepSeek / Kimi 专用 API Key
+DEEPSEEK_API_KEY=
+MOONSHOT_API_KEY=
+
+# 逐题评分与写回成绩
+WORDREPORTCHECK_PER_ITEM=false
+WORDREPORTCHECK_WRITE_BACK=false
+
+# 默认输入（与命令行 --doc / --json 二选一）
+WORDREPORTCHECK_DOC=
+WORDREPORTCHECK_JSON=
+
+# 可选：覆盖默认 Base URL（一般不需要改动）
+DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+MOONSHOT_BASE_URL=https://api.moonshot.cn/v1
+```
+
+### 生效与优先级
+- CLI 在启动时会自动加载 `.env`（优先从当前工作目录读取，其次读取项目根目录）。
+- 命令行参数 > 环境变量/`.env` 默认值。也就是说，显式传入的参数会覆盖 `.env` 中的设置。
+- API Key 查找顺序：`--api-key` → 专用提供者环境变量（`DEEPSEEK_API_KEY`/`MOONSHOT_API_KEY`） → `WORDREPORTCHECK_API_KEY`。
+
+### 示例：使用 .env 简化命令
+- 在 `.env` 中设置：
+  - `WORDREPORTCHECK_PROVIDER=kimi`
+  - `MOONSHOT_API_KEY=sk-xxxx`
+  - `WORDREPORTCHECK_PER_ITEM=true`
+  - `WORDREPORTCHECK_WRITE_BACK=true`
+  - `WORDREPORTCHECK_JSON=outputs/示例报告.json`
+- 然后仅需执行：
+
+```bash
+wordreportcheck score --model moonshot-v1-8k
+```
+
+若未设置 `WORDREPORTCHECK_MODEL`，CLI 会根据提供者自动使用默认模型（deepseek → `deepseek-chat`，kimi → `moonshot-v1-8k`）。
 
 ## 设计方案
 

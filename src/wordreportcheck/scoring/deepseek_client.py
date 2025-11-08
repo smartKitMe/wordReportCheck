@@ -1,4 +1,5 @@
 import json
+import os
 from typing import List, Any
 from openai import OpenAI
 
@@ -13,7 +14,8 @@ SYSTEM_PROMPT = (
 
 
 def score_items(items: List[ReportItem], api_key: str, model: str = "deepseek-chat") -> Any:
-    client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+    client = OpenAI(api_key=api_key, base_url=base_url)
 
     payload = [
         {"id": i.id, "question": i.question, "answer": i.answer} for i in items
@@ -42,7 +44,8 @@ def score_items(items: List[ReportItem], api_key: str, model: str = "deepseek-ch
 
 
 def score_item(item: ReportItem, api_key: str, model: str = "deepseek-chat") -> Any:
-    client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+    client = OpenAI(api_key=api_key, base_url=base_url)
 
     payload = {"id": item.id, "question": item.question, "answer": item.answer}
 
