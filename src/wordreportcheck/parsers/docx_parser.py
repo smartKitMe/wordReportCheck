@@ -61,28 +61,115 @@ def _extract_row_label_value(row) -> Optional[Dict[str, str]]:
     return None
 
 
-def _parse_content_items(content_text: str) -> List[ReportItem]:
+def _parse_content_items(content_text: str, expected_count: int) -> List[ReportItem]:
+    """将“实验内容”按题目段落切分为指定数量，并在每题中进一步提取：
+    - 题目/题目要求
+    - 实验方法和步骤（或 方法和步骤）
+    - 代码
+
+    规则与启发：
+    - 题目段边界：按“题目N：”识别，N 可为阿拉伯数字或中文数字；标题到下一题目之间视为该题内容。
+    - 段内标签：支持“题目要求/题目”、“实验方法和步骤/方法和步骤”、“代码”，允许前缀“题目N”。
+    - 忽略“运行结果/结果展示”等不计入上述三类字段。
+    - 数量保证：如少于 expected_count，则补空白题目；多于则截断。
+    """
     text = content_text.replace("\r\n", "\n").replace("\r", "\n")
-    # 识别“题目X”标题；允许前缀括号说明，标题行到下一个标题之间视为该题的回答内容
-    pattern = re.compile(r"(^|\n)(?:（[^）]*）)?\s*题目\s*(\d+)[：:](.*?)(?=\n(?:（[^）]*）)?\s*题目\s*\d+[：:]|\Z)", re.S)
-    items: List[ReportItem] = []
-    for m in pattern.finditer(text):
-        num = m.group(2)
-        title_tail = _strip(m.group(3))
-        # 将第一行标题尾部作为题干，其余作为回答
-        # 题干：截取到首个换行（若有）；回答：其余文本
-        if "\n" in title_tail:
-            first_line, rest = title_tail.split("\n", 1)
-            question = _strip(f"题目{num}：{first_line}")
-            answer = _strip(rest)
-        else:
-            question = _strip(f"题目{num}：{title_tail}")
-            # 标题后若无内容，则回答为空字符串
-            answer = ""
-        items.append(ReportItem(id=f"Q{num}", question=question, answer=answer))
+
+    # 题目段边界识别：允许中文数字与阿拉伯数字
+    numeral = r"[一二三四五六七八九十百千零〇\d]+"
+    seg_pat = re.compile(
+        rf"(^|\n)(?:（[^）]*）)?\s*题目\s*{numeral}\s*[：:]\s*(.*?)(?=\n(?:（[^）]*）)?\s*题目\s*{numeral}\s*[：:]|\Z)",
+        re.S,
+    )
+
+    segments: List[str] = []
+    for m in seg_pat.finditer(text):
+        segments.append(_strip(m.group(2)))
+
     # 若未识别到题目结构，退化为整段作为一个“未知题目”项（避免空输出）
-    if not items and content_text.strip():
-        items.append(ReportItem(id="Q1", question="实验内容", answer=_strip(content_text)))
+    if not segments and content_text.strip():
+        segments = [_strip(content_text)]
+
+    def _extract_fields(seg: str) -> Tuple[Optional[str], str, Optional[str], Optional[str]]:
+        """从单个题目段内提取 (title, question, methods, code)。
+        - 支持标签前可有“题目N”前缀，如“题目1代码：”。
+        - 若缺少明确标签：首行作为题目名称或题目要求；其余作为方法；代码为空。
+        """
+        # 查找标签位置
+        label_pat = re.compile(
+            rf"(?:^|\n)\s*(?:题目\s*{numeral}\s*)?(题目要求|题目|实验方法和步骤|方法和步骤|代码|运行结果)\s*[：:]\s*",
+            re.I,
+        )
+        matches = list(label_pat.finditer(seg))
+        title: Optional[str] = None
+        question = ""
+        methods: Optional[str] = None
+        code: Optional[str] = None
+
+        if matches:
+            # 处理标签段：遍历标签对之间的内容
+            # 先取第一个标签前的文本作为可能的标题
+            first_start = matches[0].start()
+            preamble = _strip(seg[:first_start])
+            if preamble:
+                # 取第一行作为题目名称
+                title = _strip(preamble.split("\n", 1)[0])
+
+            for i, m in enumerate(matches):
+                label = m.group(1)
+                start = m.end()
+                end = matches[i + 1].start() if i + 1 < len(matches) else len(seg)
+                content = _strip(seg[start:end])
+                if not content:
+                    continue
+                if label in ("题目要求", "题目"):
+                    question = content
+                elif label in ("实验方法和步骤", "方法和步骤"):
+                    methods = content
+                elif label == "代码":
+                    code = content
+                elif label in ("运行结果",):
+                    # 忽略运行结果
+                    pass
+        else:
+            # 无标签：首行作为题目名称或要求，其余作为方法
+            if "\n" in seg:
+                first, rest = seg.split("\n", 1)
+                title = _strip(first)
+                question = title
+                methods = _strip(rest)
+            else:
+                title = _strip(seg)
+                question = title
+
+        return title, question, methods, code
+
+    items: List[ReportItem] = []
+    for idx, seg in enumerate(segments):
+        title, q, methods, code = _extract_fields(seg)
+        parts = []
+        if methods:
+            parts.append(f"实验方法和步骤：{methods}")
+        if code:
+            parts.append(f"代码：{code}")
+        answer = "\n".join(parts)
+        # 题目编号按顺序生成；若 title 存在，保留在可选字段中
+        try:
+            items.append(ReportItem(id=f"Q{idx + 1}", question=q or "", answer=answer or "", methods=methods, code=code, title=title))
+        except TypeError:
+            items.append(ReportItem(id=f"Q{idx + 1}", question=q or "", answer=answer or ""))
+
+    # 数量保证：少则补空，多则截断
+    if expected_count is not None and expected_count > 0:
+        if len(items) > expected_count:
+            items = items[:expected_count]
+        elif len(items) < expected_count:
+            deficit = expected_count - len(items)
+            base = len(items)
+            for i in range(deficit):
+                n = base + i + 1
+                items.append(ReportItem(id=f"Q{n}", question="", answer=""))
+
     return items
 
 
@@ -188,16 +275,16 @@ def _parse_by_template(doc: Document) -> Optional[ReportDocument]:
                 if row_text:
                     content_buffer.append(row_text)
 
-    # 将实验内容解析为题目 items
+    # 仅保存“实验内容”原文，不在解析阶段做分割
     if content_buffer:
         full_content = "\n\n".join(content_buffer)
-        report.content_items = _parse_content_items(full_content)
+        report.实验内容原文 = _strip(full_content)
 
     # 若至少有一个关键字段或内容则认为解析成功
     has_any = any([
         report.学院信息, report.专业信息, report.时间, report.姓名, report.学号,
         report.课程名称, report.实验名称, report.实验分析与体会, report.实验日期,
-        len(report.content_items or []) > 0,
+        (report.实验内容原文 and report.实验内容原文.strip()),
     ])
     return report if has_any else None
 
@@ -231,57 +318,10 @@ def parse_docx_to_report(docx_path: Path) -> ReportDocument:
                 except Exception:
                     pass
 
-    # 解析实验内容为题干与答案
+    # 仅保存“实验内容”原文，不在解析阶段做分割
     full_content = "\n\n".join(content_accumulator).strip()
-    report.content_items = _parse_content_items(full_content)
+    report.实验内容原文 = full_content if full_content else None
 
-    # 回退策略：若未识别到题目，则尝试从全局表格按两列结构提取
-    if not report.content_items:
-        items: List[ReportItem] = []
-        counter = 1
-        for table in doc.tables:
-            rows = table.rows
-            if not rows:
-                continue
-            headers = [_strip(c.text) for c in rows[0].cells]
-
-            def find_idx(*keywords: str) -> Optional[int]:
-                for kw in keywords:
-                    for idx, h in enumerate(headers):
-                        if kw in h:
-                            return idx
-                return None
-
-            q_idx = find_idx("题干", "题目", "问题")
-            a_idx = find_idx("答案", "回答")
-
-            if q_idx is not None and a_idx is not None and len(rows) > 1:
-                data_rows = rows[1:]
-                for r in data_rows:
-                    q = _strip(r.cells[q_idx].text)
-                    a = _strip(r.cells[a_idx].text)
-                    if q or a:
-                        items.append(ReportItem(id=f"Q{counter}", question=q, answer=a))
-                        counter += 1
-                continue
-
-            # 回退策略：表格前两列分别视为题干与答案
-            col_count = len(rows[0].cells)
-            if col_count >= 2:
-                for r in rows:
-                    q_raw = r.cells[0].text
-                    q_norm_label = _normalize_label(q_raw)
-                    # 若第一列是已知的18个单元标签，则跳过，不将其纳入内容题目
-                    if q_norm_label in LABEL_MAP.values():
-                        continue
-                    q = _strip(q_raw)
-                    a = _strip(r.cells[1].text)
-                    if q or a:
-                        # 进一步过滤：优先包含包含“题目/问题/任务”等关键词的行
-                        if re.search(r"(题目|问题|任务)", q):
-                            items.append(ReportItem(id=f"Q{counter}", question=q, answer=a))
-                            counter += 1
-
-        report.content_items = items
+    # 题目分割不在解析阶段进行；由 CLI 在提供了分割数量时调用 _parse_content_items 完成
 
     return report

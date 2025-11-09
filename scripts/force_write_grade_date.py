@@ -22,14 +22,27 @@ def write(doc_path: Path, grade: str, date_str: str):
     doc = Document(str(doc_path))
     wrote = False
     for table in doc.tables:
+        # 写入成绩：按标签“成绩”匹配并写入其相邻单元格
         for row in table.rows:
             vi_g = find_value_cell(row, "成绩")
             if vi_g is not None:
                 row.cells[vi_g].text = grade
                 wrote = True
-            vi_d = find_value_cell(row, "日期")
+
+        # 写入日期：仅写入该表格的最后一行
+        if len(table.rows) > 0:
+            last_row = table.rows[-1]
+            vi_d = find_value_cell(last_row, "日期")
             if vi_d is not None:
-                row.cells[vi_d].text = date_str
+                last_row.cells[vi_d].text = date_str
+                wrote = True
+            else:
+                # 回退：若最后一行没有“日期”标签，则写入第二个单元格（若存在），否则写入第一个单元格
+                cells = list(last_row.cells)
+                if len(cells) >= 2:
+                    cells[1].text = date_str
+                elif len(cells) >= 1:
+                    cells[0].text = date_str
                 wrote = True
     if wrote:
         doc.save(str(doc_path))

@@ -8,6 +8,11 @@ class ReportItem:
     id: str
     question: str
     answer: str
+    # 新增：为更细粒度的 JSON 输出保留分割字段
+    methods: Optional[str] = None
+    code: Optional[str] = None
+    # 新增：题目名称（与题目要求区分，用于展示与导出）
+    title: Optional[str] = None
 
 
 @dataclass
@@ -29,10 +34,29 @@ class ReportDocument:
     成绩: Optional[str] = None
     签名: Optional[str] = None
     日期: Optional[str] = None
+    # 原始“实验内容”全文（不经分割，用于发送到 AI）
+    实验内容原文: Optional[str] = None
     # 实验内容（题干与答案）
     content_items: List[ReportItem] = None  # type: ignore
 
     def to_json_obj(self) -> Dict[str, Any]:
+        # 自定义 items 的序列化：同时输出英文与中文字段，满足评分与展示需求
+        items_out: List[Dict[str, Any]] = []
+        for i in (self.content_items or []):
+            item_dict: Dict[str, Any] = {
+                "id": i.id,
+                # 兼容：保留英文键用于评分逻辑
+                "question": i.question,
+                "answer": i.answer,
+                # 中文展示字段（满足用户要求的键名）
+                "编号": i.id,
+                "题目名称": i.title,
+                "题目要求": i.question,
+                "实验方法和步骤": i.methods,
+                "代码": i.code,
+            }
+            items_out.append(item_dict)
+
         obj: Dict[str, Any] = {
             "学院信息": self.学院信息,
             "专业信息": self.专业信息,
@@ -45,8 +69,10 @@ class ReportDocument:
             "周次": self.周次,
             "实验名称": self.实验名称,
             "实验环境": self.实验环境,
+            # 同时输出原文与分割后的 items，便于后续 AI 分割或调试
             "实验内容": {
-                "items": [asdict(i) for i in (self.content_items or [])]
+                "raw": self.实验内容原文,
+                "items": items_out,
             },
             "实验分析与体会": self.实验分析与体会,
             "实验日期": self.实验日期,
@@ -65,15 +91,32 @@ def report_to_json(report: ReportDocument) -> str:
 def report_from_json(json_str: str) -> ReportDocument:
     data = json.loads(json_str)
     items_data = []
+    content_raw: Optional[str] = None
     # 兼容：可能直接提供顶层 items 或嵌套在 "实验内容" 下
     if isinstance(data.get("实验内容"), dict):
+        content_raw = data["实验内容"].get("raw")
         items_data = data["实验内容"].get("items", [])
     elif isinstance(data.get("items"), list):
         items_data = data.get("items", [])
 
     items: List[ReportItem] = []
     for i in items_data:
-        items.append(ReportItem(id=i.get("id", ""), question=i.get("question", ""), answer=i.get("answer", "")))
+        # 优先从中文键读取，兼容英文键
+        title = i.get("题目名称") or i.get("题目")
+        q_cn = i.get("题目要求") or i.get("题目")
+        methods = i.get("实验方法和步骤") or i.get("方法和步骤") or i.get("methods")
+        code = i.get("代码") or i.get("code")
+        q = (q_cn or i.get("question", ""))
+        # 若未提供英文 answer，则由 methods+code 拼接生成
+        ans = i.get("answer")
+        if not ans:
+            parts = []
+            if methods:
+                parts.append(f"实验方法和步骤：{methods}")
+            if code:
+                parts.append(f"代码：{code}")
+            ans = "\n".join(parts)
+        items.append(ReportItem(id=i.get("id", ""), question=q or "", answer=ans or "", methods=methods, code=code, title=title))
 
     return ReportDocument(
         学院信息=data.get("学院信息"),
@@ -93,6 +136,7 @@ def report_from_json(json_str: str) -> ReportDocument:
         成绩=data.get("成绩"),
         签名=data.get("签名"),
         日期=data.get("日期"),
+        实验内容原文=content_raw,
         content_items=items,
     )
 
