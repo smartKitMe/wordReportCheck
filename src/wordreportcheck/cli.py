@@ -643,7 +643,6 @@ def main() -> int:
                 print(json.dumps(summary, ensure_ascii=False, indent=2))
                 # 加入 CSV 汇总行
                 csv_rows.append({
-                    "文件名": doc_path.name,
                     "姓名": (report.姓名 or ""),
                     "学号": (report.学号 or ""),
                     "班级": (report.班级 or ""),
@@ -659,7 +658,7 @@ def main() -> int:
         # 写出成绩汇总 CSV
         csv_path = out_dir / "grades.csv"
         try:
-            headers = ["文件名", "姓名", "学号", "班级", "课程名称", "实验名称", "成绩"]
+            headers = ["姓名", "学号", "班级", "课程名称", "实验名称", "成绩"]
             with csv_path.open("w", newline="", encoding="utf-8-sig") as f:
                 writer = csv.DictWriter(f, fieldnames=headers)
                 writer.writeheader()
