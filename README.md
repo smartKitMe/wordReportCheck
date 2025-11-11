@@ -55,6 +55,34 @@ export DEEPSEEK_API_KEY=sk-xxx
 
 运行完成后会在控制台打印简要总结，包含输入文件、输出文件、所用 provider/model、平均分等信息。
 
+### 批量处理：遍历目录并自动评分（auto-dir）
+
+一次性处理目录中的所有 `.docx`，为每份文档生成解析结果与评分明细，并在复制件 DOCX 中写回成绩。
+
+```bash
+# 基本用法：遍历目录并输出到指定目录
+py -m wordreportcheck auto-dir --in-dir samples/学生作业2 --out-dir outputs/2 --segment-count 2
+
+# 递归处理子目录（例如遍历 samples 下所有子目录）
+py -m wordreportcheck auto-dir --in-dir samples --out-dir outputs/all --recursive
+
+# 指定评分服务/模型与密钥（覆盖 .env 设置）
+py -m wordreportcheck auto-dir --in-dir samples/学生作业2 --out-dir outputs/2 \
+  --provider deepseek --model deepseek-chat --api-key <DEEPSEEK_API_KEY>
+```
+
+输出内容说明（写入到 `--out-dir`）：
+- `<stem>.json`：解析后的报告 JSON（顶层 18 个信息单元，含 `content_items`）。
+- `<stem>.scores.json`：评分明细（逐题评分的数组）。
+- `<filename>.docx`：复制原始 DOCX 并在复制件上写入“成绩/日期”。
+- `grades.csv`：汇总所有文件的平均分（含输入/输出路径等）。
+
+参数与行为说明：
+- 当“实验内容”中未识别到题目时，可用 `--segment-count <N>` 按本地规则切分为 N 题（示例使用 2）。
+- 默认忽略临时锁文件：以 `~$` 开头的 `.docx` 不参与处理。
+- 支持 `--provider deepseek|kimi`、`--model ...`、`--api-key ...` 用于覆盖 `.env` 中的默认配置。
+- 单个文件失败不会中断批量任务，执行结束会打印汇总统计（`processed/failed/csv`）。
+
 1) 解析 docx 为包含 18 个单元的 JSON（`ReportDocument`）
 
 ```bash
