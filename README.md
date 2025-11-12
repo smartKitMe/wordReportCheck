@@ -5,13 +5,20 @@
 - 解析统一模板的 `.docx` 实验报告，抽取固定的 18 个信息单元（学院信息、专业信息、时间、姓名、学号、班级、指导老师、课程名称、周次、实验名称、实验环境、实验内容、实验分析与体会、实验日期、备注、成绩、签名、日期）。
 - 将“实验内容”中的题目与答案抽取为结构化列表 `content_items`，并可提交到 DeepSeek 进行自动评分。
 
-## 安装
+## 使用准备
+
+- 安装 Python 3.9+（建议 3.10/3.11）。
+- 在项目根目录安装依赖并注册命令：
 
 ```bash
 py -m pip install -e .
 ```
 
-依赖：`python-docx`、`openai`。
+- 依赖：`python-docx`、`openai`。首次安装会自动拉取。
+- Windows 终端建议使用 PowerShell；路径既支持 `\` 也支持 `/`。
+- 样例文档位于 `samples/`；输出默认写入同目录或你指定的 `--out-dir`。
+
+ 
 
 ## 使用方法
 
@@ -69,6 +76,16 @@ py -m wordreportcheck auto-dir --in-dir samples --out-dir outputs/all --recursiv
 # 指定评分服务/模型与密钥（覆盖 .env 设置）
 py -m wordreportcheck auto-dir --in-dir samples/学生作业2 --out-dir outputs/2 \
   --provider deepseek --model deepseek-chat --api-key <DEEPSEEK_API_KEY>
+
+py -m wordreportcheck auto-dir --in-dir samples\1班\学生作业 --out-dir outputs\1班\学生作业 --segment-count 4 
+py -m wordreportcheck auto-dir --in-dir samples\2班\学生作业 --out-dir outputs\2班\学生作业 --segment-count 4 
+py -m wordreportcheck auto-dir --in-dir samples\3班\学生作业 --out-dir outputs\3班\学生作业 --segment-count 4 
+py -m wordreportcheck auto-dir --in-dir samples\4班\学生作业 --out-dir outputs\4班\学生作业 --segment-count 4 
+py -m wordreportcheck auto-dir --in-dir samples\5班\学生作业 --out-dir outputs\5班\学生作业 --segment-count 4 
+py -m wordreportcheck auto-dir --in-dir samples\网工\2025_11_04_17_52_12 --out-dir outputs\网工\2025_11_04_17_52_12 --segment-count 4 
+
+
+
 ```
 
 输出内容说明（写入到 `--out-dir`）：
@@ -107,6 +124,7 @@ py -m wordreportcheck parse --doc samples/示例报告.docx --out outputs/示例
   "实验名称": "Java 基础与控制结构",
   "实验环境": "JDK 21 + Windows",
   "实验内容": {
+    "raw": "实验内容原文...",
     "items": [
       {"id": "Q1", "question": "题目1：数组的基本操作", "answer": "……"},
       {"id": "Q2", "question": "题目2：条件与循环", "answer": "……"}
@@ -221,24 +239,55 @@ wordreportcheck score --model moonshot-v1-128k
 
 ## 设计方案
 
-- 解析流程
-  - 使用 `python-docx` 读取 `.docx` 表格。
-  - 通过标签映射识别统一模板的 18 个信息单元（学院信息、姓名、课程名称、实验名称、实验内容、实验日期等），按“标签-值”方式抽取。
-  - 将“实验内容”聚合为文本后，优先按“题目/问题/任务 + 编号”样式切分为题目列表；若未识别，则回退尝试在全局表格中仅采集包含“题目/问题/任务”关键词的两列问答结构，并排除 18 个固定标签行。
-  - 产出 `ReportDocument`（顶层 18 个信息单元 + `content_items`）。
-
-- 序列化
-  - `schemas.py` 提供 `report_to_json` / `report_from_json` 将 `ReportDocument` 与 JSON 转换。
-
-- 评分流程
-  - `scoring/deepseek_client.py` 将 `ReportDocument.content_items` 构造成评分请求提交给 DeepSeek API，支持模型选择与 API Key 配置。
-
-- CLI 命令
-  - `parse`：解析 docx 为 18 个信息单元的报告 JSON（内含 `content_items`）。
-  - `score`：解析并提交到 DeepSeek 评分（仅评分 `content_items`），或从现有 JSON 评分。
+- 解析：读取 `.docx` 表格，识别 18 个固定信息单元；“实验内容”按统一样式聚合为原文。
+- 序列化：提供 JSON 转换；`实验内容` 同时包含 `raw` 与 `items`。
+- 评分：仅对 `content_items` 评分，可一次性或逐题执行；支持 DeepSeek 与 Kimi。
 
 ## 注意事项与建议
 
 - 模板标签建议使用清晰的中文并以冒号结尾，例如“实验名称：xxx”。解析器会自动去掉冒号并进行标签归一化。
 - “实验内容”中的题目建议使用“题目X：”或“问题X：”样式便于切分；若存在两列问答表格，亦可被回退逻辑识别。
 - 若输出的中文在命令行显示出现乱码，通常是终端编码导致；JSON 文件本身为 UTF-8，可用编辑器或浏览器查看。
+
+## 命令速览
+
+- `parse`：解析 `.docx` 为 18 个信息单元的 JSON。
+- `score`：对 `content_items` 评分；支持 `--per-item`、`--write-back`、`--write-docx`。
+- `auto`：单文件一键解析→评分→写回。
+- `auto-dir`：批量解析评分并生成 `grades.csv`。
+- `write-docx`：从已有 JSON 的“成绩”写回到 DOCX。
+
+## 写回 DOCX 的规则
+
+- 查找包含“成绩”的行，优先写入其右侧相邻的可见值单元格；若标签位于该行最后一列，则写回前一列。
+- 查找包含“日期”的行，写入其右侧值单元格；未找到时保持原值或跳过。
+- 成绩写回在复制的 DOCX 上进行，源文件不修改。
+
+## AI 分割与题目结构
+
+- 当解析阶段未识别到题目结构，可在命令中指定 `--segment-count N`，按本地规则分割为 N 个题目。
+- 分割逻辑支持标签“题目要求/题目、实验方法和步骤/方法和步骤、代码”，并忽略“运行结果”等段落；数量不一致时会补齐或截断。
+
+## 脚本工具（scripts/）
+
+- `scripts\copy_docs.bat`：从源目录复制 `.doc/.docx` 到目标目录，便于组织批量评分输入。
+  - 用法：`scripts\copy_docs.bat <目标目录> [源目录]`，默认源目录可在脚本内修改。
+- `scripts\dump_labels.py`：调试 DOCX 中“成绩/日期”所在行与值单元格位置，定位模板问题。
+- `scripts\force_write_grade_date.py`：在指定 DOCX 强制写入成绩与日期，绕过模板不规范导致的写回失败。
+- `scripts\validate_outputs.py`：遍历 `samples/` 解析为 JSON 并校验结构，输出汇总与问题定位。
+
+## 常见问题（Troubleshooting）
+
+- 未找到 API Key：通过 `--api-key` 或设置环境变量 `DEEPSEEK_API_KEY`/`MOONSHOT_API_KEY`/`WORDREPORTCHECK_API_KEY`。
+- 未识别到题目：检查“实验内容”是否含“题目X：”格式，或使用 `--segment-count` 进行本地分割。
+- 分割数量不一致：系统会提示并自动补齐/截断。
+- 写回 DOCX 失败：模板未包含可写入的“成绩/日期”单元格或文件不可写；可用 `scripts\dump_labels.py` 定位或 `scripts\force_write_grade_date.py` 试写。
+
+## 示例工作流
+
+- 单份作业：
+  - `py -m wordreportcheck auto --doc samples/示例报告.docx --out-dir outputs --provider deepseek`
+  - 查看 `outputs/示例报告.json` 与 `outputs/示例报告.scores.json`，成绩已写回到 `outputs/示例报告.docx`。
+- 批量作业（递归）：
+  - `py -m wordreportcheck auto-dir --in-dir samples --out-dir outputs/all --recursive --segment-count 6`
+  - 汇总成绩位于 `outputs/all/grades.csv`，每份文档均生成同名 JSON 和 `.scores.json`。

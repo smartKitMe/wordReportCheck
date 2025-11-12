@@ -19,6 +19,7 @@ ENV/
 
 # Project outputs
 outputs/*
+out/*
 !outputs/README.md
 
 samples/*
